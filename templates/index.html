@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cool Voice Chatbot</title>
+    <script src="https://unpkg.com/react@17/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@17/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/babel-standalone@6/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+</head>
+<body class="bg-gray-900 text-white">
+    <div id="root"></div>
+
+    <script type="text/babel">
+    {% raw %}
+        const { useState, useEffect, useCallback } = React;
+
+        const Microphone = ({ isListening, onClick }) => (
+            <button
+                onClick={onClick}
+                className={`w-40 h-40 rounded-full flex items-center justify-center transition-all duration-300 ${
+                    isListening ? 'bg-red-500 animate-pulse' : 'bg-blue-500 hover:bg-blue-600'
+                }`}
+            >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-20 w-20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+                    <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                    <line x1="12" y1="19" x2="12" y2="23"></line>
+                    <line x1="8" y1="23" x2="16" y2="23"></line>
+                </svg>
+            </button>
+        );
+
+        const StatusIndicator = ({ status }) => (
+            <div className="mt-8 text-2xl font-bold text-center animate-fade-in">
+                {status}
+            </div>
+        );
+
+        const BackgroundTransition = ({ isResponding }) => (
+            <div className={`fixed inset-0 transition-colors duration-1000 ${isResponding ? 'bg-purple-900' : 'bg-gray-900'}`} style={{ zIndex: -1 }}></div>
+        );
+
+        const App = () => {
+            const [isListening, setIsListening] = useState(false);
+            const [isResponding, setIsResponding] = useState(false);
+            const [status, setStatus] = useState('');
+            const [recognition, setRecognition] = useState(null);
+
+            const startListening = useCallback(() => {
+                const newRecognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+                newRecognition.lang = 'en-US';
+                newRecognition.interimResults = false;
+                newRecognition.maxAlternatives = 1;
+                newRecognition.continuous = true;
+
+                newRecognition.onresult = async (event) => {
+                    const transcript = event.results[event.results.length - 1][0].transcript;
+                    setStatus('Responding...');
+                    setIsResponding(true);
+                    try {
+                        const response = await fetch('/chat', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({ message: transcript }),
+                        });
+                        const data = await response.json();
+                        if (response.ok) {
+                            const utterance = new SpeechSynthesisUtterance(data.response);
+                            speechSynthesis.speak(utterance);
+                            utterance.onend = () => {
+                                setStatus('Listening...');
+                                setIsResponding(false);
+                            };
+                        } else {
+                            throw new Error(data.error || 'Failed to get response from server');
+                        }
+                    } catch (error) {
+                        console.error('Error:', error);
+                        setStatus('Error occurred');
+                        setIsResponding(false);
+                    }
+                };
+
+                newRecognition.onerror = (event) => {
+                    console.error('Speech recognition error', event.error);
+                    setStatus('Error: ' + event.error);
+                };
+
+                newRecognition.onend = () => {
+                    if (isListening) {
+                        newRecognition.start();
+                    }
+                };
+
+                newRecognition.start();
+                setRecognition(newRecognition);
+                setIsListening(true);
+                setStatus('Listening...');
+            }, [isListening]);
+
+            const stopListening = useCallback(() => {
+                if (recognition) {
+                    recognition.stop();
+                }
+                setIsListening(false);
+                setStatus('');
+            }, [recognition]);
+
+            const toggleListening = useCallback(() => {
+                if (isListening) {
+                    stopListening();
+                } else {
+                    startListening();
+                }
+            }, [isListening, startListening, stopListening]);
+
+            useEffect(() => {
+                return () => {
+                    if (recognition) {
+                        recognition.stop();
+                    }
+                };
+            }, [recognition]);
+
+            return (
+                <div className="min-h-screen flex flex-col items-center justify-center relative overflow-hidden">
+                    <BackgroundTransition isResponding={isResponding} />
+                    <h1 className="text-4xl font-bold mb-8 relative z-10">Voice Chatbot</h1>
+                    <Microphone isListening={isListening} onClick={toggleListening} />
+                    <StatusIndicator status={status} />
+                </div>
+            );
+        };
+
+        ReactDOM.render(<App />, document.getElementById('root'));
+    {% endraw %}
+    </script>
+</body>
+</html>
+
